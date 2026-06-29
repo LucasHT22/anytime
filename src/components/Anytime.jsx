@@ -9,6 +9,10 @@ const TEXT_DIM = "#555558";
 const SHOTS_TOTAL = 3;
 const COUNTDOWN = 3;
 
+const STRIP_PADDING = 18;
+const STRIP_GAP = 10;
+const STRIP_LABEL_H = 22;
+
 // da beauty of constants
 
 function isLShape(lm) {
@@ -46,13 +50,60 @@ function Dot({ filled }) {
 
 function Strip({ photos, onRetake }) {
     const download = () => {
-        photos.forEach((src, i) => {
-            setTimeout(() => {
-                const a = document.createElement("a");
-                a.href = src;
-                a.download = `anytime_${i + 1}.png`;
-                a.click();
-            }, i * 150);
+        const imgs = photos.map(src => {
+            const img = new Image();
+            img.src = src;
+            return img;
+        });
+
+        Promise.all(imgs.map(img => new Promise(res => { img.onload = res; }))).then(() => {
+            const maxW = Math.max(...imgs.map(i => i.naturalWidth));
+            const stripW = maxW + STRIP_PADDING * 2;
+
+            const totalH = STRIP_PADDING + imgs.reduce((sum, img, i) => {
+                return sum + img.naturalHeight + STRIP_LABEL_H + (i < imgs.length - 1 ? STRIP_GAP : 0);
+            }, 0) + STRIP_PADDING;
+
+            const strip = document.createElement("canvas");
+            strip.width = stripW;
+            strip.height = totalH;
+            const ctx = strip.getContext("2d");
+
+            ctx.fillStyle = "#0d0d0e";
+            ctx.fillRect(0, 0, stripW, totalH);
+
+            const holeR = 5;
+            const holeX_L = 6;
+            const holeX_R = stripW - 6;
+            const holeCount = Math.floor(totalH / 28);
+            ctx.fillStyle = "#1e1e20";
+            for (let k = 0; k < holeCount; k++) {
+                const hy = 14 + k * 28;
+                [holeX_L, holeX_R].forEach(hx => {
+                    ctx.beginPath();
+                    ctx.roundRect(hx - holeR, hy - holeR * 1.4, holeR * 2, holeR * 2.8, 2);
+                    ctx.fill();
+                });
+            }
+
+            let y = STRIP_PADDING;
+            imgs.forEach((img, i) => {
+                const x = STRIP_PADDING + Math.floor((maxW - img.naturalWidth) / 2);
+                ctx.drawImage(img, x, y);
+
+                ctx.fillStyle = CORAL;
+                ctx.font = `bold 10px 'Courier New', monospace`;
+                ctx.letterSpacing = "3px";
+                ctx.textAlign = "center";
+                ctx.fillText(`0${i + 1}`, stripW / 2, y + img.naturalHeight + 15);
+
+                y += img.naturalHeight + STRIP_LABEL_H + (i < imgs.length - 1 ? STRIP_GAP : 0);
+            });
+
+            const a = document.createElement("a");
+            a.href = strip.toDataURL("img/png");
+            a.download = "anytime.png";
+            a.click();
         });
     };
 
@@ -60,13 +111,19 @@ function Strip({ photos, onRetake }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, padding: "32px 16px", background: BG, minHeight: "100vh" }}>
             <div style={{ color: CORAL, letterSpacing: 6, fontSize: 11 }}>// STRIP READY</div>
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <div style={{ background: "#0d0d0e", padding: `${STRIP_PADDING}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: STRIP_GAP, border: `1px solid ${MUTED}`, borderRadius: 3, position: "relative", maxWidth: 300, }}>
+                {[0, 1].map(side => (
+                    <div key={side} style={{ position: "absolute", top: 0, bottom: 0, [side === 0 ? "left" : "right"]: 0, width: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly", pointerEvents: "none", }}>
+                        {Array.from({ length: 8 }).map((_, k) => (
+                            <div key={k} style={{ width: 6, height: 9, borderRadius: 1, background: "#1e1e20" }} />
+                        ))}
+                    </div>
+                ))}
+
                 {photos.map((src, i) => (
-                    <div key={i} style={{ position: "relative", border: `1.5px solid ${CORAL}`, borderRadius: 3, overflow: "hidden" }}>
-                        <img src={src} alt={`shot ${i + 1}`} style={{ display: "block", width: 220, height: "auto" }} />
-                        <div style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, color: CORAL, letterSpacing: 3 }}>
-                            0{i + 1}
-                        </div>
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                        <img src={src} alt={`shot ${i + 1}`} style={{ display: "block", maxWidth: 240, height: "auto", border: `1px solid #222222` }} />
+                        <div style={{ fontSize: 9, color: CORAL, letterSpacing: 3 }}>0{i + 1}</div>
                     </div>
                 ))}
             </div>
@@ -92,6 +149,8 @@ export default function Anytime() {
     const phaseRef = useRef("idle");
     const shotsRef = useRef([]);
     const tickRef = useRef(null);
+
+    const holdTimerRef = useRef(null);
 
     const [phase, setPhase] = useState("idle");
     const [countdown, setCountdown] = useState(COUNTDOWN);
@@ -134,7 +193,7 @@ export default function Anytime() {
                 return crop.toDataURL("image/png");
             }
         }
-        return canvas.toDataURL("image/png");
+        return null;
     }, []);
 
     const runShot = useCallback((afterCapture) => {
@@ -160,7 +219,6 @@ export default function Anytime() {
 
     const startSequence = useCallback(() => {
         if (phaseRef.current !== "idle") return;
-        shotsRef.current = [];
 
         const next = () => {
             if (shotsRef.current.length >= SHOTS_TOTAL) {
@@ -171,19 +229,28 @@ export default function Anytime() {
             }
             runShot((img) => {
                 if (img) shotsRef.current.push(img);
-                phaseRef.current = "idle-between";
-                setPhase("idle-between");
-                setTimeout(next, 600);
+                if (shotsRef.current.length >= SHOTS_TOTAL) {
+                    phaseRef.current = "done";
+                    setPhase("done");
+                    setPhotos([...shotsRef.current]);
+                    return;
+                }
+                phaseRef.current = "idle";
+                setPhase("idle");
+                cornersRef.current = [];
             });
         };
         next();
     }, [runShot]);
 
+    const startSequenceRef = useRef(null);
+    startSequenceRef.current = startSequence;
+
     useEffect(() => {
         let cam;
 
         const hands = new window.Hands({
-            locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+            locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`,
         });
         hands.setOptions({
             maxNumHands: 2,
@@ -238,7 +305,19 @@ export default function Anytime() {
                 ctx.fillStyle = CORAL_DIM;
                 ctx.fillRect(rx, ry, rw, rh);
 
-                if (phaseRef.current === "idle") startSequence(); 
+                if (phaseRef.current === "idle") {
+                    if (!holdTimerRef.current) {
+                        holdTimerRef.current = setTimeout(() => {
+                            holdTimerRef.current = null;
+                            startSequenceRef.current?.();
+                        }, 800);
+                    }
+                }
+            } else {
+                if (holdTimerRef.current) {
+                    clearTimeout(holdTimerRef.current);
+                    holdTimerRef.current = null;
+                }
             }
         });
 
@@ -269,10 +348,12 @@ export default function Anytime() {
             if (cam) cam.stop();
             hands.close();
         };
-    }, [startSequence]);
+    }, []);
 
     const retake = () => {
         clearInterval(tickRef.current);
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
         phaseRef.current = "idle";
         cornersRef.current = [];
         shotsRef.current = [];
