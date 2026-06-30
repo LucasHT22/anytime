@@ -8,10 +8,14 @@ const MUTED = "#3a3a3d";
 const TEXT_DIM = "#555558";
 const SHOTS_TOTAL = 3;
 const COUNTDOWN = 3;
+const STRIP_PADDING = 20;
+const STRIP_GAP = 8;
+const STRIP_LABEL_H = 20;
 
-const STRIP_PADDING = 18;
-const STRIP_GAP = 10;
-const STRIP_LABEL_H = 22;
+const MODES = [
+    { id: "raw", label: "RAW", hint: "clean crop, no filter" },
+    { id: "draw", label: "DRAW", hint: "draw with your finger while framing" },
+];
 
 // da beauty of constants
 
@@ -33,6 +37,13 @@ function getCorner(lm) {
     }
 }
 
+function getIndexTip(lm) {
+    return {
+        x: lm[8].x,
+        y: lm[8].y
+    }
+}
+
 function HandIcon({ active }) {
     return (
         <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
@@ -48,6 +59,14 @@ function Dot({ filled }) {
     );
 }
 
+function ModeButton({ mode, active, onSelect }) {
+    return (
+        <button onClick={() => onSelect(mode.id)} style={{ background: active ? CORAL : "transparent", border: `1px solid ${active ? CORAL : MUTED}`, color: active ? BG : TEXT_DIM, padding: "6px 18px", cursor: "pointer", letterSpacing: 3, fontSize: 9, fontFamily: "monospace", fontWeight: active ? 700 : 400, transition: "all .15s", }}>
+            {mode.label}
+        </button>
+    );
+}
+
 function Strip({ photos, onRetake }) {
     const download = () => {
         const imgs = photos.map(src => {
@@ -57,61 +76,65 @@ function Strip({ photos, onRetake }) {
         });
 
         Promise.all(imgs.map(img => new Promise(res => { img.onload = res; }))).then(() => {
-            const maxW = Math.max(...imgs.map(i => i.naturalWidth));
-            const stripW = maxW + STRIP_PADDING * 2;
+            const unifiedW = Math.min(...imgs.map(i => i.naturalWidth));
 
-            const totalH = STRIP_PADDING + imgs.reduce((sum, img, i) => {
-                return sum + img.naturalHeight + STRIP_LABEL_H + (i < imgs.length - 1 ? STRIP_GAP : 0);
-            }, 0) + STRIP_PADDING;
+            const scaled = imgs.map(img => {
+                const scale = unifiedW / img.naturalWidth;
+                return {
+                    img,
+                    w: unifiedW,
+                    h: Math.round(img.naturalHeight * scale)
+                };
+            });
+
+            const stripW = unifiedW + STRIP_PADDING * 2;
+            const stripH = STRIP_PADDING + scaled.reduce((s, f, i) => s + f.h + STRIP_LABEL_H + (i < scaled.length - 1 ? STRIP_GAP : 0), 0) + STRIP_PADDING;
 
             const strip = document.createElement("canvas");
             strip.width = stripW;
-            strip.height = totalH;
+            strip.height = stripH;
+
             const ctx = strip.getContext("2d");
-
             ctx.fillStyle = "#0d0d0e";
-            ctx.fillRect(0, 0, stripW, totalH);
+            ctx.fillRect(0, 0, stripW, stripH);
 
-            const holeR = 5;
-            const holeX_L = 6;
-            const holeX_R = stripW - 6;
-            const holeCount = Math.floor(totalH / 28);
-            ctx.fillStyle = "#1e1e20";
+            const holeR = 4;
+            const holeCount = Math.floor(stripH / 26);
+            ctx.fillStyle = "#1c1c1f";
             for (let k = 0; k < holeCount; k++) {
-                const hy = 14 + k * 28;
-                [holeX_L, holeX_R].forEach(hx => {
+                const hy = 13 + k * 26;
+                [8, stripW - 8].forEach(hx => {
                     ctx.beginPath();
-                    ctx.roundRect(hx - holeR, hy - holeR * 1.4, holeR * 2, holeR * 2.8, 2);
+                    ctx.roundRect(hx - holeR, hy - holeR * 1.5, holeR * 2, holeR * 3, 2);
                     ctx.fill();
                 });
             }
 
             let y = STRIP_PADDING;
-            imgs.forEach((img, i) => {
-                const x = STRIP_PADDING + Math.floor((maxW - img.naturalWidth) / 2);
-                ctx.drawImage(img, x, y);
-
+            scaled.forEach(({ img, w, h }, i) => {
+                const x = STRIP_PADDING;
+                ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, x, y, w, h);
                 ctx.fillStyle = CORAL;
-                ctx.font = `bold 10px 'Courier New', monospace`;
-                ctx.letterSpacing = "3px";
+                ctx.font = "bold 9px 'Courier New', monospace";
                 ctx.textAlign = "center";
-                ctx.fillText(`0${i + 1}`, stripW / 2, y + img.naturalHeight + 15);
-
-                y += img.naturalHeight + STRIP_LABEL_H + (i < imgs.length - 1 ? STRIP_GAP : 0);
+                ctx.fillText(`0${i + 1}`, stripW / 2, y + h + 14);
+                y += h + STRIP_LABEL_H + (i < scaled.length - 1 ? STRIP_GAP : 0);
             });
 
             const a = document.createElement("a");
-            a.href = strip.toDataURL("img/png");
+            a.href = strip.toDataURL("image/png");
             a.download = "anytime.png";
             a.click();
         });
     };
 
+    const thumbW = 220;
+
     return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, padding: "32px 16px", background: BG, minHeight: "100vh" }}>
             <div style={{ color: CORAL, letterSpacing: 6, fontSize: 11 }}>// STRIP READY</div>
 
-            <div style={{ background: "#0d0d0e", padding: `${STRIP_PADDING}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: STRIP_GAP, border: `1px solid ${MUTED}`, borderRadius: 3, position: "relative", maxWidth: 300, }}>
+            <div style={{ background: "#0d0d0e", padding: `${STRIP_PADDING}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: STRIP_GAP, border: `1px solid ${MUTED}`, borderRadius: 3, position: "relative", width: thumbW + STRIP_PADDING * 2 + 28, }}>
                 {[0, 1].map(side => (
                     <div key={side} style={{ position: "absolute", top: 0, bottom: 0, [side === 0 ? "left" : "right"]: 0, width: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly", pointerEvents: "none", }}>
                         {Array.from({ length: 8 }).map((_, k) => (
@@ -122,7 +145,7 @@ function Strip({ photos, onRetake }) {
 
                 {photos.map((src, i) => (
                     <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                        <img src={src} alt={`shot ${i + 1}`} style={{ display: "block", maxWidth: 240, height: "auto", border: `1px solid #222222` }} />
+                        <img src={src} alt={`shot ${i + 1}`} style={{ display: "block", width: thumbW, height: "auto", border: `1px solid #222222` }} />
                         <div style={{ fontSize: 9, color: CORAL, letterSpacing: 3 }}>0{i + 1}</div>
                     </div>
                 ))}
@@ -133,7 +156,7 @@ function Strip({ photos, onRetake }) {
                     RETAKE
                 </button>
                 <button onClick={download} style={{ background: CORAL, border: "none", color: BG, padding: "9px 28px", cursor: "pointer", letterSpacing: 3, fontSize: 10, fontFamily: "monospace", fontWeight: 700 }}>
-                    SAVE ALL
+                    SAVE STRIP
                 </button>
             </div>
         </div>
@@ -144,13 +167,14 @@ export default function Anytime() {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
+    const drawRef = useRef(null);
 
     const cornersRef = useRef([]);
     const phaseRef = useRef("idle");
     const shotsRef = useRef([]);
     const tickRef = useRef(null);
-
     const holdTimerRef = useRef(null);
+    const drawPathRef = useRef([]);
 
     const [phase, setPhase] = useState("idle");
     const [countdown, setCountdown] = useState(COUNTDOWN);
@@ -158,6 +182,7 @@ export default function Anytime() {
     const [photos, setPhotos] = useState([]);
     const [ready, setReady] = useState(false);
     const [error, setError] = useState(null);
+    const [mode, setMode] = useState("raw");
 
     const captureFrame = useCallback(() => {
         const video = videoRef.current;
@@ -173,6 +198,11 @@ export default function Anytime() {
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0);
         ctx.restore();
+
+        if (mode === "draw") {
+            const dc = drawRef.current;
+            if (dc) ctx.drawImage(dc, 0, 0);
+        }
 
         const corners = cornersRef.current;
         if (corners.length === 2) {
@@ -194,7 +224,7 @@ export default function Anytime() {
             }
         }
         return null;
-    }, []);
+    }, [mode]);
 
     const runShot = useCallback((afterCapture) => {
         phaseRef.current = "countdown";
@@ -266,13 +296,46 @@ export default function Anytime() {
             ctx.clearRect(0, 0, overlay.width, overlay.height);
 
             const lCorners = [];
-            (results.multiHandLandmarks || []).forEach((lm) => {
-                if (isLShape(lm)) lCorners.push(getCorner(lm));
-            });
-            cornersRef.current = lCorners;
-            setLCount(lCorners.length);
 
             const W = overlay.width, H = overlay.height;
+
+            (results.multiHandLandmarks || []).forEach((lm) => {
+                if (isLShape(lm)) {
+                    lCorners.push(getCorner(lm));
+                } else if (mode === "draw" && phaseRef.current === "idle") {
+                    const tip = getIndexTip(lm);
+                    const px = (1 - tip.x) * W;
+                    const py = tip.y * H;
+                    const dc = drawRef.current;
+                    if (dc) {
+                        const sx = dc.width / W;
+                        const sy = dc.height / H;
+                        const dctx = dc.getContext("2d");
+                        dctx.strokeStyle = CORAL;
+                        dctx.lineWidth = 3;
+                        dctx.lineCap = "round";
+                        dctx.lineJoin = "round";
+
+                        const prev = drawPathRef.current[drawPathRef.current.length - 1];
+                        if (prev) {
+                            dctx.beginPath();
+                            dctx.moveTo(prev.x * sx, prev.y * sy);
+                            dctx.lineTo(px *sx, py * sy);
+                            dctx.stroke();
+                        }
+                        drawPathRef.current.push({ x: px, y: py });
+
+                        ctx.save();
+                        ctx.scale(-1, 1);
+                        ctx.translate(-W, 0);
+                        ctx.drawImage(dc, 0, 0, dc.width, dc.height, 0, 0, W, H);
+                        ctx.restore();
+                    }
+                }
+            });
+
+            cornersRef.current = lCorners;
+            setLCount(lCorners.length);
 
             lCorners.forEach((c) => {
                 const px = (1 - c.x) * W;
@@ -318,6 +381,10 @@ export default function Anytime() {
                     clearTimeout(holdTimerRef.current);
                     holdTimerRef.current = null;
                 }
+
+                if (lCorners.length === 0) {
+                    drawPathRef.current = [];
+                }
             }
         });
 
@@ -328,9 +395,16 @@ export default function Anytime() {
             video.onloadedmetadata = () => {
                 video.play();
                 const ov = overlayRef.current;
+                const dc = drawRef.current;
+                
                 if (ov) {
                     ov.width = video.videoWidth;
                     ov.height = video.videoHeight;
+                }
+
+                if (dc) {
+                    dc.width = video.videoWidth;
+                    dc.height = video.videoHeight;
                 }
 
                 cam = new window.Camera(video, {
@@ -348,7 +422,7 @@ export default function Anytime() {
             if (cam) cam.stop();
             hands.close();
         };
-    }, []);
+    }, [mode]);
 
     const retake = () => {
         clearInterval(tickRef.current);
@@ -357,6 +431,9 @@ export default function Anytime() {
         phaseRef.current = "idle";
         cornersRef.current = [];
         shotsRef.current = [];
+        drawPathRef.current = [];
+        const dc = drawRef.current;
+        if (dc) dc.getContext("2d").clearRect(0, 0, dc.width, dc.height);
         setPhase("idle");
         setPhotos([]);
         setLCount(0);
@@ -365,7 +442,8 @@ export default function Anytime() {
 
     if (phase === "done") return <Strip photos={photos} onRetake={retake} />;
 
-    const statusText = !ready ? "loading mediapipe..." : lCount === 0 ? "make an L with both hands to frame your shot" : lCount === 1 ? "hold - waiting for second hand..." : phase === "countdown" ? `shooting ${shotsRef.current.length + 1} of ${SHOTS_TOTAL}` : "crop locked";
+    const currentMode = MODES.find(m => m.id === mode);
+    const statusText = !ready ? "loading mediapipe..." : lCount === 0 ? currentMode.hint : lCount === 1 ? "hold - waiting for second hand..." : phase === "countdown" ? `shooting ${shotsRef.current.length + 1} of ${SHOTS_TOTAL}` : "crop locked";
 
     return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", background: BG, minHeight: "100vh", padding: "28px 16px", fontFamily: "'Courier New', monospace" }}>
@@ -375,11 +453,21 @@ export default function Anytime() {
                     {error ? <span style={{ color: CORAL }}>{error}</span> : statusText}
                 </div>
             </div>
+            
+            <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+                {MODES.map(m => (
+                    <ModeButton key={m.id} mode={m} active={mode === m.id} onSelect={(id) => {
+                        retake();
+                        setMode(id);
+                    }} />
+                ))}
+            </div>
 
             <div style={{ position: "relative", width: "min(720px, 100%)", aspectRatio: "16 / 9", background: SURFACE, borderRadius: 4, overflow: "hidden", border: `1px solid ${MUTED}`, }}>
                 <video ref={videoRef} playsInline muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)", display: "block" }} />
                 <canvas ref={overlayRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
                 <canvas ref={canvasRef} style={{ display: "none" }} />
+                <canvas ref={drawRef} style={{ display: "none" }} />
                 {phase === "countdown" && (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", }}>
                         <span style={{ fontSize: 140, fontWeight: 700, color: CORAL, lineHeight: 1, opacity: 0.9 }}>
