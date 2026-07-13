@@ -138,7 +138,7 @@ function Strip({ photos, onRetake }) {
 
     return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, padding: "32px 16px", background: BG, minHeight: "100vh" }}>
-            <div style={{ color: CORAL, letterSpacing: 6, fontSize: 11 }}>// STRIP READY</div>
+            <div style={{ color: CORAL, letterSpacing: 6, fontSize: 11 }}>STRIP READY</div>
 
             <div style={{ background: "#0d0d0e", padding: `${STRIP_PADDING}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: STRIP_GAP, border: `1px solid ${MUTED}`, borderRadius: 3, position: "relative", width: thumbW + STRIP_PADDING * 2 + 28, }}>
                 {[0, 1].map(side => (
