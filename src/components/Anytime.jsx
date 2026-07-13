@@ -19,8 +19,6 @@ const MODES = [
 
 const MAX_ZOOM = 3;
 
-{/* da beauty of constants (ma comment broke da deployent) */}
-
 function isLShape(lm) {
     const tip = (i) => lm[i];
     const pip = (i) => lm[i - 2];
