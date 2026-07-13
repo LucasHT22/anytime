@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const CORAL = "#ff3d5a";
-const CORAL_DIM = "rgba(255,61,90,0.25)";
 const CORAL_LOCKED = "rgba(255,61,90,0.12)";
 const BG = "#0a0a0b";
 const SURFACE = "#111214";
