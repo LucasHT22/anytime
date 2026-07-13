@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 const CORAL = "#ff3d5a";
 const CORAL_DIM = "rgba(255,61,90,0.25)";
+const CORAL_LOCKED = "rgba(255,61,90,0.12)";
 const BG = "#0a0a0b";
 const SURFACE = "#111214";
 const MUTED = "#3a3a3d";
@@ -14,8 +15,10 @@ const STRIP_LABEL_H = 20;
 
 const MODES = [
     { id: "raw", label: "RAW", hint: "clean crop, no filter" },
-    { id: "draw", label: "DRAW", hint: "draw with your finger while framing" },
+    { id: "pinch", label: "PINCH", hint: "one hand L for corner - other hand pinch to zoom" },
 ];
+
+const MAX_ZOOM = 3;
 
 // da beauty of constants
 
@@ -37,11 +40,17 @@ function getCorner(lm) {
     }
 }
 
-function getIndexTip(lm) {
+function getPinchDist(lm) {
+    const dx = lm[4].x - lm[8].x;
+    const dy = lm[4].y - lm[8].y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getPinchMid(lm) {
     return {
-        x: lm[8].x,
-        y: lm[8].y
-    }
+        x: (lm[4].x + lm[8].x) / 2,
+        y: (lm[4].y + lm[8].y) / 2,
+    };
 }
 
 function HandIcon({ active }) {
@@ -163,18 +172,74 @@ function Strip({ photos, onRetake }) {
     );
 }
 
+function drawCropRect(ctx, corners, W, H, zoom, pinchMid, dimmed) {
+    const xs = corners.map(c => (1 - c.x) * W);
+    const ys = corners.map(c => c.y * H);
+    const rx = Math.min(...xs);
+    const ry = Math.min(...ys);
+    const rw = Math.max(...xs) - rx;
+    const rh = Math.max(...ys) - ry;
+
+    if (zoom > 1) {
+        const cx = rx + rw / 2;
+        const cy = ry + rh / 2;
+        const irw = rw / zoom;
+        const irh = rh / zoom;
+        const irx = cx - irw / 2;
+        const iry = cy - irh / 2;
+
+        ctx.strokeStyle = dimmed ? "rgba(255,61,90,0.2)" : "rgba(255,61,90,0.3)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = dimmed ? "rgba(255,61,90,0.4)" : CORAL;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([7, 4]);
+        ctx.strokeRect(irx, iry, irw, irh);
+        ctx.setLineDash([]);
+        ctx.fillStyle = dimmed ? CORAL_LOCKED : "rgba(255,61,90,0.18)";
+        ctx.fillRect(irx, iry, irw, irh);
+
+        ctx.fillStyle = dimmed ? "rgba(255,61,90,0.4)" : CORAL;
+        ctx.font = "bold 10px 'Courier New', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(`${zoom.toFixed(1)}x`, cx, cy);
+    } else {
+        ctx.strokeStyle = dimmed ? "rgba(255,61,90,0.25)" : CORAL;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([7, 4]);
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.setLineDash([]);
+        ctx.fillStyle = dimmed ? CORAL_LOCKED : "rgba(255,61,90,0.25)";
+        ctx.fillRect(rx, ry, rw, rh);
+    }
+
+    if (pinchMid) {
+        ctx.beginPath();
+        ctx.arc(pinchMid.x, pinchMid.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = dimmed ? "rgba(255,61,90,0.4)" : CORAL;
+        ctx.fill();
+    }
+}
+
 export default function Anytime() {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const overlayRef = useRef(null);
-    const drawRef = useRef(null);
 
     const cornersRef = useRef([]);
     const phaseRef = useRef("idle");
     const shotsRef = useRef([]);
     const tickRef = useRef(null);
     const holdTimerRef = useRef(null);
-    const drawPathRef = useRef([]);
+
+    const pinchZoomRef = useRef(1);
+    const pinchMidRef = useRef(null);
+
+    const lockedCornersRef = useRef([]);
+    const lockedZoomRef = useRef(1);
 
     const [phase, setPhase] = useState("idle");
     const [countdown, setCountdown] = useState(COUNTDOWN);
@@ -199,21 +264,29 @@ export default function Anytime() {
         ctx.drawImage(video, 0, 0);
         ctx.restore();
 
-        if (mode === "draw") {
-            const dc = drawRef.current;
-            if (dc) ctx.drawImage(dc, 0, 0);
-        }
-
-        const corners = cornersRef.current;
+        const corners = lockedCornersRef.current;
         if (corners.length === 2) {
             const W = canvas.width, H = canvas.height;
 
             const xs = corners.map(c => (1 - c.x) * W);
             const ys = corners.map(c => c.y * H);
-            const x1 = Math.max(0, Math.min(...xs));
-            const y1 = Math.max(0, Math.min(...ys));
-            const x2 = Math.min(W, Math.max(...xs));
-            const y2 = Math.min(H, Math.max(...ys));
+            let x1 = Math.max(0, Math.min(...xs));
+            let y1 = Math.max(0, Math.min(...ys));
+            let x2 = Math.min(W, Math.max(...xs));
+            let y2 = Math.min(H, Math.max(...ys));
+            
+            if (mode === "pinch") {
+                const zoom = lockedZoomRef.current;
+                const cx = (x1 + x2) / 2;
+                const cy = (y1 + y2) / 2;
+                const hw = (x2 - x1) / 2 / zoom;
+                const hh = (y2 - y1) / 2 / zoom;
+                x1 = Math.max(0, cx - hw);
+                y1 = Math.max(0, cy - hh);
+                x2 = Math.min(W, cx + hw);
+                y2 = Math.min(H, cy + hh);
+            }
+
             const w = x2 - x1, h = y2 - y1;
             if (w > 10 && h > 10) {
                 const crop = document.createElement("canvas");
@@ -268,6 +341,8 @@ export default function Anytime() {
                 phaseRef.current = "idle";
                 setPhase("idle");
                 cornersRef.current = [];
+                lockedCornersRef.current = [];
+                lockedZoomRef.current = 1;
             });
         };
         next();
@@ -299,74 +374,56 @@ export default function Anytime() {
 
             const W = overlay.width, H = overlay.height;
 
+            let pinchDetected = false;
+
             (results.multiHandLandmarks || []).forEach((lm) => {
                 if (isLShape(lm)) {
                     lCorners.push(getCorner(lm));
-                } else if (mode === "draw" && phaseRef.current === "idle") {
-                    const tip = getIndexTip(lm);
-                    const px = (1 - tip.x) * W;
-                    const py = tip.y * H;
-                    const dc = drawRef.current;
-                    if (dc) {
-                        const sx = dc.width / W;
-                        const sy = dc.height / H;
-                        const dctx = dc.getContext("2d");
-                        dctx.strokeStyle = CORAL;
-                        dctx.lineWidth = 3;
-                        dctx.lineCap = "round";
-                        dctx.lineJoin = "round";
-
-                        const prev = drawPathRef.current[drawPathRef.current.length - 1];
-                        if (prev) {
-                            dctx.beginPath();
-                            dctx.moveTo(prev.x * sx, prev.y * sy);
-                            dctx.lineTo(px *sx, py * sy);
-                            dctx.stroke();
-                        }
-                        drawPathRef.current.push({ x: px, y: py });
-
-                        ctx.save();
-                        ctx.scale(-1, 1);
-                        ctx.translate(-W, 0);
-                        ctx.drawImage(dc, 0, 0, dc.width, dc.height, 0, 0, W, H);
-                        ctx.restore();
-                    }
+                } else if (mode === "pinch") {
+                    const dist = getPinchDist(lm);
+                    const OPEN_DIST = 0.2;
+                    const zoom = Math.max(1, Math.min(MAX_ZOOM, 1 + (MAX_ZOOM - 1) * (1 - Math.min(dist, OPEN_DIST) / OPEN_DIST)));
+                    pinchZoomRef.current = zoom;
+                    lCorners.push(getCorner(lm));
+                    pinchDetected = true;
+                    const mid = getPinchMid(lm);
+                    pinchMidRef.current = { x: (1 - mid.x) * W, y: mid.y * H };
                 }
             });
+
+            if (!pinchDetected) {
+                pinchZoomRef.current = 1;
+                pinchMidRef.current = null;
+            }
 
             cornersRef.current = lCorners;
             setLCount(lCorners.length);
 
-            lCorners.forEach((c) => {
-                const px = (1 - c.x) * W;
-                const py = c.y * H;
-                const sz = 26;
-                ctx.strokeStyle = CORAL;
-                ctx.lineWidth = 3;
-                ctx.lineCap = "round";
-                ctx.beginPath();
-                ctx.moveTo(px - sz, py);
-                ctx.lineTo(px, py);
-                ctx.lineTo(px, py - sz);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.arc(px, py, 4, 0, Math.PI * 2);
-                ctx.fillStyle = CORAL;
-                ctx.fill();
-            });
-
             if (lCorners.length === 2) {
-                const xs = lCorners.map(c => (1 - c.x) * W);
-                const ys = lCorners.map(c => c.y * H);
-                const rx = Math.min(...xs), ry = Math.min(...ys);
-                const rw = Math.max(...xs) - rx, rh = Math.max(...ys) - ry;
-                ctx.strokeStyle = CORAL;
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([7, 4]);
-                ctx.strokeRect(rx, ry, rw, rh);
-                ctx.setLineDash([]);
-                ctx.fillStyle = CORAL_DIM;
-                ctx.fillRect(rx, ry, rw, rh);
+                if (phaseRef.current === "idle") {
+                    lockedCornersRef.current = [...lCorners];
+                    lockedZoomRef.current = pinchZoomRef.current;
+                }
+
+                lCorners.forEach((c) => {
+                    const px = (1 - c.x) * W;
+                    const py = c.y * H;
+                    const sz = 26;
+                    ctx.strokeStyle = CORAL;
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = "round";
+                    ctx.beginPath();
+                    ctx.moveTo(px - sz, py);
+                    ctx.lineTo(px, py);
+                    ctx.lineTo(px, py - sz);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(px, py, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = CORAL;
+                    ctx.fill();
+                });
+
+                drawCropRect(ctx, lCorners, W, H, pinchZoomRef.current, pinchMidRef.current, false);
 
                 if (phaseRef.current === "idle") {
                     if (!holdTimerRef.current) {
@@ -382,8 +439,8 @@ export default function Anytime() {
                     holdTimerRef.current = null;
                 }
 
-                if (lCorners.length === 0) {
-                    drawPathRef.current = [];
+                if (lockedCornersRef.current.length === 2) {
+                    drawCropRect(ctx, lockedCornersRef.current, W, H, lockedZoomRef.current, null, true);
                 }
             }
         });
@@ -395,16 +452,10 @@ export default function Anytime() {
             video.onloadedmetadata = () => {
                 video.play();
                 const ov = overlayRef.current;
-                const dc = drawRef.current;
                 
                 if (ov) {
                     ov.width = video.videoWidth;
                     ov.height = video.videoHeight;
-                }
-
-                if (dc) {
-                    dc.width = video.videoWidth;
-                    dc.height = video.videoHeight;
                 }
 
                 cam = new window.Camera(video, {
@@ -431,9 +482,10 @@ export default function Anytime() {
         phaseRef.current = "idle";
         cornersRef.current = [];
         shotsRef.current = [];
-        drawPathRef.current = [];
-        const dc = drawRef.current;
-        if (dc) dc.getContext("2d").clearRect(0, 0, dc.width, dc.height);
+        lockedCornersRef.current = [];
+        lockedZoomRef.current = 1;
+        pinchZoomRef.current = 1;
+        pinchMidRef.current = null;
         setPhase("idle");
         setPhotos([]);
         setLCount(0);
@@ -442,8 +494,9 @@ export default function Anytime() {
 
     if (phase === "done") return <Strip photos={photos} onRetake={retake} />;
 
+    const hasLock = lockedCornersRef.current.length === 2;
     const currentMode = MODES.find(m => m.id === mode);
-    const statusText = !ready ? "loading mediapipe..." : lCount === 0 ? currentMode.hint : lCount === 1 ? "hold - waiting for second hand..." : phase === "countdown" ? `shooting ${shotsRef.current.length + 1} of ${SHOTS_TOTAL}` : "crop locked";
+    const statusText = !ready ? "loading mediapipe..." : phase === "countdown" ? `shooting ${shotsRef.current.length +1} of ${SHOTS_TOTAL}` : lCount === 2 ? "frame locked - hold still" : lCount === 1 ? "hold - waiting for second hand..." : hasLock ? "frame locked · make Ls again to reframe" : currentMode.hint;
 
     return (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", background: BG, minHeight: "100vh", padding: "28px 16px", fontFamily: "'Courier New', monospace" }}>
@@ -467,7 +520,6 @@ export default function Anytime() {
                 <video ref={videoRef} playsInline muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)", display: "block" }} />
                 <canvas ref={overlayRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
                 <canvas ref={canvasRef} style={{ display: "none" }} />
-                <canvas ref={drawRef} style={{ display: "none" }} />
                 {phase === "countdown" && (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", }}>
                         <span style={{ fontSize: 140, fontWeight: 700, color: CORAL, lineHeight: 1, opacity: 0.9 }}>
