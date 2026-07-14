@@ -245,6 +245,7 @@ export default function Anytime() {
     const [ready, setReady] = useState(false);
     const [error, setError] = useState(null);
     const [mode, setMode] = useState("raw");
+    const [sessionKey, setSessionKey] = useState(0);
 
     const captureFrame = useCallback(() => {
         const video = videoRef.current;
@@ -470,7 +471,7 @@ export default function Anytime() {
             if (cam) cam.stop();
             hands.close();
         };
-    }, [mode]);
+    }, [mode, sessionKey]);
 
     const retake = () => {
         clearInterval(tickRef.current);
@@ -487,6 +488,7 @@ export default function Anytime() {
         setPhotos([]);
         setLCount(0);
         setCountdown(COUNTDOWN);
+        setSessionKey(k => k + 1);
     };
 
     if (phase === "done") return <Strip photos={photos} onRetake={retake} />;
