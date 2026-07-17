@@ -2,6 +2,8 @@
 
 ---
 
+![](/assets/IMG_0773.jpeg)
+
 # Anytime
 
 A gesture-controlled photobooth, take it anywhere anytime.
@@ -25,6 +27,8 @@ Making an L with both hands places two corner markers on the overlay. The knuckl
 Once both Ls are held for 800ms, the corners freeze into `lockedCornersRef`. You can drop your hands, the frame persists as a dimmed overlay on screen. The capture reads from the locked corners.
 
 After each shot the lock clears. Every shot needs its own frame.
+
+![](/assets/IMG_0774.PNG)
 
 ### The Strip
 
