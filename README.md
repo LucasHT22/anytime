@@ -28,7 +28,6 @@ Once both Ls are held for 800ms, the corners freeze into `lockedCornersRef`. You
 
 After each shot the lock clears. Every shot needs its own frame.
 
-![](/assets/IMG_0774.PNG)
 
 ### The Strip
 
@@ -42,6 +41,8 @@ scaled = imgs.map(img => ({
     h: Math.round(img.naturalHeight * (unifiedW / img.naturalWidth))
 }))
 ```
+
+![](/assets/IMG_0774.PNG)
 
 ---
 
